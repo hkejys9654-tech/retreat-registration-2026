@@ -30,7 +30,7 @@ var XLSX={};function make_xlsx_lib(a){a.version="0.18.5",a.style_version="1.2.0"
   <main class="screen" id="screenSummary"><section class="card summary"><h3>정산 요약</h3><table><tbody id="moneySummaryBody"></tbody></table></section><section class="card summary"><h3>항목별 인원/금액</h3><table><thead><tr><th>구분</th><th>인원</th><th>금액</th></tr></thead><tbody id="categorySummaryBody"></tbody></table></section><button class="primary" id="exportExcelBtn2">▣ 원본 양식대로 엑셀 출력</button></main>
   <main class="screen" id="screenSettings"><section class="card summary"><h3>기본 설정</h3><div class="grid2"><div class="field"><label>교회명</label><input id="setChurch"></div><div class="field"><label>기본 구역</label><input id="setZone"></div></div><div class="grid2"><div class="field"><label>기본 차수</label><select id="setRound"><option>1차</option><option>2차</option><option>3차</option><option>4차</option><option>5차</option><option>6차</option></select></div><div class="field"><label>차량 단가</label><input id="setVehicleFee" type="number" min="0"></div></div><button class="save" id="saveSettingsBtn" type="button">설정 저장</button></section><section class="card"><h3>데이터 관리</h3><p class="note">데이터는 이 휴대폰 브라우저에 자동 저장됩니다. 다른 휴대폰과 동기화하려면 나중에 Firestore 연결을 붙이면 됩니다.</p><button class="ghost" id="sampleBtn" type="button" style="width:100%;margin-top:10px">샘플 데이터 넣기</button><button class="danger" id="clearAllBtn" type="button" style="width:100%;margin-top:10px">전체 데이터 삭제</button></section></main>
 </div>
-<nav class="bottom"><button class="nav active" data-screen="list"><span>👥</span>명단</button><button class="nav" data-screen="form"><span>＋</span>접수</button><button class="nav" data-screen="summary"><span>₩</span>정산</button><button class="nav" data-screen="settings"><span>⚙</span>설정</button></nav><div class="toast" id="toast"></div><div class="modal" id="confirmModal"><div class="sheet"><h3 id="modalTitle">확인</h3><p id="modalText">진행할까요?</p><div class="actions"><button class="ghost" id="modalCancel">취소</button><button class="danger" id="modalOk">확인</button></div></div></div>
+<nav class="bottom"><button class="nav active" data-screen="list"><span>👥</span>명단</button><button class="nav" data-screen="form"><span>＋</span>접수</button><button class="nav" data-screen="summary"><span>₩</span>정산</button><button class="nav" data-screen="settings"><span>⚙</span>설정</button></nav><div class="toast" id="toast"></div><div class="modal" id="confirmModal"><div class="sheet"><h3 id="modalTitle">확인</h3><p id="modalText">진행할까요?</p><div class="actions"><button class="ghost" id="modalCancel">취소</button><button class="danger" id="modalOk">확인</button></div></div></div><div class="modal" id="exportModal"><div class="sheet"><h3>엑셀 출력</h3><p style="margin:0 0 4px">파일을 어떻게 받을까요?</p><p style="margin:0 0 14px;font-size:12px;color:#94a3b8;font-weight:700;word-break:break-all" id="exportFileName"></p><div class="actions" style="grid-template-columns:1fr 1fr"><button class="ghost" id="exportShareBtn" style="height:52px">📤 공유하기</button><button class="save" id="exportDownloadBtn" style="height:52px">⬇ 다운로드</button></div><button class="ghost" id="exportCancelBtn" style="width:100%;margin-top:10px">취소</button></div></div>
 <script>
 'use strict';
 const STORAGE_KEY='retreatRegistration2026.v2',SETTINGS_KEY='retreatRegistration2026.settings.v2';
@@ -134,39 +134,49 @@ function buildRegistrationSheet(){
   ws['!views']=[{showGridLines:false}];
   return ws;
 }
-async function exportExcel(){
+let exportBlob=null,exportName='';
+function exportExcel(){
   if(!people.length)return toast('출력할 참가자가 없습니다');
   if(!window.XLSX)return toast('엑셀 모듈을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요');
-  const fileName=`2026_하계수양회_${settings.zone}_사전접수.xlsx`;
-  let buf;
+  exportName=`2026_하계수양회_${settings.zone}_사전접수.xlsx`;
   try{
     const wb=XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb,buildRegistrationSheet(),'사전접수');
-    buf=XLSX.write(wb,{bookType:'xlsx',type:'array'});
+    const buf=XLSX.write(wb,{bookType:'xlsx',type:'array'});
+    exportBlob=new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
   }catch(e){return toast('엑셀 생성 중 오류가 발생했습니다')}
-  const blob=new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+  let canShare=false;
+  try{canShare=!!(navigator.canShare&&navigator.canShare({files:[new File([exportBlob],exportName,{type:exportBlob.type})]}))}catch(e){canShare=false}
+  $('exportShareBtn').style.display=canShare?'':'none';
+  $('exportFileName').textContent=exportName;
+  $('exportModal').classList.add('show');
+}
+function closeExport(){$('exportModal').classList.remove('show')}
+async function doShare(){
+  closeExport();
+  if(!exportBlob)return;
   try{
-    const file=new File([blob],fileName,{type:blob.type});
-    if(navigator.canShare&&navigator.canShare({files:[file]})){
-      await navigator.share({files:[file],title:'2026 하계수양회 사전접수'});
-      return toast('엑셀 파일을 공유했습니다');
-    }
-  }catch(e){
-    if(e&&e.name==='AbortError')return;
-  }
+    const file=new File([exportBlob],exportName,{type:exportBlob.type});
+    await navigator.share({files:[file],title:'2026 하계수양회 사전접수'});
+    toast('공유했습니다');
+  }catch(e){if(!(e&&e.name==='AbortError'))toast('공유에 실패했습니다')}
+}
+function doDownload(){
+  closeExport();
+  if(!exportBlob)return;
   try{
-    const url=URL.createObjectURL(blob);
+    const url=URL.createObjectURL(exportBlob);
     const a=document.createElement('a');
-    a.href=url;a.download=fileName;a.rel='noopener';
+    a.href=url;a.download=exportName;a.rel='noopener';
     document.body.appendChild(a);a.click();a.remove();
     setTimeout(()=>URL.revokeObjectURL(url),1500);
-    toast('엑셀 파일을 만들었습니다');
-  }catch(e){toast('다운로드에 실패했습니다. 브라우저로 열어 다시 시도해 주세요')}
+    toast('다운로드를 시작했습니다');
+  }catch(e){toast('다운로드에 실패했습니다')}
 }
 function fillSettings(){$('setChurch').value=settings.church;$('setZone').value=settings.zone;$('setRound').value=settings.defaultRound;$('setVehicleFee').value=settings.vehicleUnitFee}
 function confirmDlg(title,text,fn){$('modalTitle').textContent=title;$('modalText').textContent=text;pending=fn;$('confirmModal').classList.add('show')}function closeDlg(){pending=null;$('confirmModal').classList.remove('show')}
 function samples(){[{name:'강지승',category:'성인',gender:'남',relation:'본인',serviceDept:'찬양대',paidAmount:90000,vehicle:'예',vehicleCount:1,lodging:'신청 안함'},{name:'이가영',category:'성인',gender:'여',relation:'배우자',serviceDept:'식당봉사',paidAmount:70000,vehicle:'아니오',vehicleCount:0,lodging:'총회제공'},{name:'강은우',category:'취학아동(초등)',gender:'남',relation:'자녀',gradeAge:'초1',guardian:'강지승',paidAmount:0,vehicle:'예',vehicleCount:1,lodging:'신청 안함'},{name:'강선우',category:'미취학(유치부)(5~7세)',gender:'남',relation:'자녀',gradeAge:'6세',guardian:'강지승',paidAmount:0,vehicle:'아니오',vehicleCount:0,lodging:'2~4세'}].forEach(x=>{const b=FEE[x.category]||0,vf=x.vehicle==='예'?Math.max(x.vehicleCount,1)*settings.vehicleUnitFee:0,t=b+vf;people.push({id:uid(),zone:settings.zone,isNew:'아니오',round:settings.defaultRound,phone:'',serviceDept:'',memo:'',guardian:'',...x,baseFee:b,vehicleFee:vf,totalFee:t,unpaidAmount:Math.max(t-x.paidAmount,0),createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()})});save();renderList();renderSummary();toast('샘플 데이터를 넣었습니다')}
-function bind(){$('churchBadge').onclick=()=>{screen('settings');setTimeout(()=>$('setZone').focus(),250)};$('exportExcelBtn').onclick=exportExcel;$('exportExcelBtn2').onclick=exportExcel;$('newPersonBtn').onclick=()=>{reset();screen('form')};$('backToListBtn').onclick=()=>screen('list');document.querySelectorAll('.nav').forEach(b=>b.onclick=()=>{if(b.dataset.screen==='form')reset();screen(b.dataset.screen)});['category','vehicleCount','paidAmount'].forEach(id=>$(id).oninput=calc);document.querySelectorAll('input[name="vehicle"],input[name="payMode"]').forEach(x=>x.onchange=calc);document.querySelectorAll('input[name="isNew"]').forEach(x=>x.onchange=toggleNew);$('serviceDept').onchange=()=>$('serviceDeptCustomWrap').classList.toggle('hidden',$('serviceDept').value!=='__custom');$('minusVehicle').onclick=()=>{$('vehicleCount').value=Math.max(0,num($('vehicleCount').value)-1);calc()};$('plusVehicle').onclick=()=>{$('vehicleCount').value=num($('vehicleCount').value)+1;setRadio('vehicle','예');calc()};$('personForm').onsubmit=e=>{e.preventDefault();const p=formData();if(!p.name)return toast('이름을 입력해 주세요');if(!p.category)return toast('대상 구분을 선택해 주세요');if(child(p.category)&&!p.gradeAge)return toast(p.category==='취학아동(초등)'?'학년을 입력해 주세요':'나이를 입력해 주세요');if($('serviceDept').value==='__custom'&&!p.serviceDept)return toast('봉사 부서를 직접 입력해 주세요');if(p.paidAmount>p.totalFee)return toast('수령액이 총액보다 클 수 없습니다');const i=people.findIndex(x=>x.id===p.id);if(i<0){people.push(p);toast('저장했습니다')}else{people[i]=p;toast('수정했습니다')}save();renderList();renderSummary();reset();screen('list')};$('resetFormBtn').onclick=reset;$('deletePersonBtn').onclick=()=>{const p=people.find(x=>x.id===$('editId').value);if(p)confirmDlg('참가자 삭제',`${p.name} 님을 삭제할까요?`,()=>{people=people.filter(x=>x.id!==p.id);save();renderList();reset();screen('list');closeDlg();toast('삭제했습니다')})};$('searchInput').oninput=renderList;$('filterCategory').onchange=renderList;$('saveSettingsBtn').onclick=()=>{settings.church=$('setChurch').value.trim()||'광주봉선교회';settings.zone=$('setZone').value.trim()||'17구역';settings.defaultRound=$('setRound').value;settings.vehicleUnitFee=num($('setVehicleFee').value)||20000;saveSettings();reset();renderList();toast('설정을 저장했습니다')};$('sampleBtn').onclick=samples;$('clearAllBtn').onclick=()=>confirmDlg('전체 삭제','등록된 모든 참가자 데이터를 삭제할까요? 이 작업은 되돌릴 수 없습니다.',()=>{people=[];save();renderList();renderSummary();closeDlg();toast('전체 삭제했습니다')});$('modalCancel').onclick=closeDlg;$('modalOk').onclick=()=>pending?.();$('confirmModal').onclick=e=>{if(e.target===$('confirmModal'))closeDlg()}}
+function bind(){$('churchBadge').onclick=()=>{screen('settings');setTimeout(()=>$('setZone').focus(),250)};$('exportExcelBtn').onclick=exportExcel;$('exportExcelBtn2').onclick=exportExcel;$('newPersonBtn').onclick=()=>{reset();screen('form')};$('backToListBtn').onclick=()=>screen('list');document.querySelectorAll('.nav').forEach(b=>b.onclick=()=>{if(b.dataset.screen==='form')reset();screen(b.dataset.screen)});['category','vehicleCount','paidAmount'].forEach(id=>$(id).oninput=calc);document.querySelectorAll('input[name="vehicle"],input[name="payMode"]').forEach(x=>x.onchange=calc);document.querySelectorAll('input[name="isNew"]').forEach(x=>x.onchange=toggleNew);$('serviceDept').onchange=()=>$('serviceDeptCustomWrap').classList.toggle('hidden',$('serviceDept').value!=='__custom');$('minusVehicle').onclick=()=>{$('vehicleCount').value=Math.max(0,num($('vehicleCount').value)-1);calc()};$('plusVehicle').onclick=()=>{$('vehicleCount').value=num($('vehicleCount').value)+1;setRadio('vehicle','예');calc()};$('personForm').onsubmit=e=>{e.preventDefault();const p=formData();if(!p.name)return toast('이름을 입력해 주세요');if(!p.category)return toast('대상 구분을 선택해 주세요');if(child(p.category)&&!p.gradeAge)return toast(p.category==='취학아동(초등)'?'학년을 입력해 주세요':'나이를 입력해 주세요');if($('serviceDept').value==='__custom'&&!p.serviceDept)return toast('봉사 부서를 직접 입력해 주세요');if(p.paidAmount>p.totalFee)return toast('수령액이 총액보다 클 수 없습니다');const i=people.findIndex(x=>x.id===p.id);if(i<0){people.push(p);toast('저장했습니다')}else{people[i]=p;toast('수정했습니다')}save();renderList();renderSummary();reset();screen('list')};$('resetFormBtn').onclick=reset;$('deletePersonBtn').onclick=()=>{const p=people.find(x=>x.id===$('editId').value);if(p)confirmDlg('참가자 삭제',`${p.name} 님을 삭제할까요?`,()=>{people=people.filter(x=>x.id!==p.id);save();renderList();reset();screen('list');closeDlg();toast('삭제했습니다')})};$('searchInput').oninput=renderList;$('filterCategory').onchange=renderList;$('saveSettingsBtn').onclick=()=>{settings.church=$('setChurch').value.trim()||'광주봉선교회';settings.zone=$('setZone').value.trim()||'17구역';settings.defaultRound=$('setRound').value;settings.vehicleUnitFee=num($('setVehicleFee').value)||20000;saveSettings();reset();renderList();toast('설정을 저장했습니다')};$('sampleBtn').onclick=samples;$('clearAllBtn').onclick=()=>confirmDlg('전체 삭제','등록된 모든 참가자 데이터를 삭제할까요? 이 작업은 되돌릴 수 없습니다.',()=>{people=[];save();renderList();renderSummary();closeDlg();toast('전체 삭제했습니다')});$('modalCancel').onclick=closeDlg;$('modalOk').onclick=()=>pending?.();$('confirmModal').onclick=e=>{if(e.target===$('confirmModal'))closeDlg()};$('exportShareBtn').onclick=doShare;$('exportDownloadBtn').onclick=doDownload;$('exportCancelBtn').onclick=closeExport;$('exportModal').onclick=e=>{if(e.target===$('exportModal'))closeExport()}}
 document.addEventListener('DOMContentLoaded',()=>{load();bind();reset();renderList();renderSummary()});
 </script>
 </body>
