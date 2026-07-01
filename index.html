@@ -233,5 +233,136 @@ document.addEventListener('DOMContentLoaded',()=>{load();bind();reset();renderLi
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();
 })();
 </script>
+
+
+<!-- ===== 갤럭시/카톡 인앱 엑셀 바로 공유 패치 ===== -->
+<script>
+'use strict';
+(function(){
+  const PATCH_KEY = 'kakaoNativeExcelSharePatch.v1';
+  const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+  if (window[PATCH_KEY]) return;
+  window[PATCH_KEY] = true;
+
+  function byId(id){ return document.getElementById(id); }
+  function ua(){ return navigator.userAgent || ''; }
+  function isAndroid(){ return /Android/i.test(ua()); }
+  function isKakaoInApp(){ return /KAKAOTALK|KakaoTalk/i.test(ua()); }
+  function isMobile(){ return /Android|iPhone|iPad|iPod/i.test(ua()); }
+  function makeFile(blob, name){
+    if (typeof File !== 'function') return null;
+    return new File([blob], name, { type: XLSX_MIME, lastModified: Date.now() });
+  }
+  function shareText(){
+    try {
+      const church = typeof settings !== 'undefined' && settings.church ? settings.church : '';
+      const zone = typeof settings !== 'undefined' && settings.zone ? settings.zone : '';
+      return (church + ' ' + zone + ' 사전접수').trim() || '2026 하계수양회 사전접수';
+    } catch(e) {
+      return '2026 하계수양회 사전접수';
+    }
+  }
+  function canTryNativeFileShare(file){
+    if (!navigator.share || !file) return false;
+    if (!navigator.canShare) return isMobile();
+    try {
+      if (navigator.canShare({ files: [file] })) return true;
+    } catch(e) {}
+    return isAndroid() && isKakaoInApp();
+  }
+  async function nativeShareFile(file){
+    if (!canTryNativeFileShare(file)) return { ok: false, reason: 'unsupported' };
+    try {
+      await navigator.share({
+        files: [file],
+        title: '2026 하계수양회 사전접수',
+        text: shareText()
+      });
+      return { ok: true };
+    } catch(e) {
+      return { ok: false, aborted: e && e.name === 'AbortError', error: e };
+    }
+  }
+  function showExportFallback(message){
+    const modal = byId('exportModal');
+    if (!modal) return;
+    const fileName = byId('exportFileName');
+    const shareBtn = byId('exportShareBtn');
+    if (fileName) fileName.textContent = (exportName || '') + (message ? '\n' + message : '');
+    if (shareBtn) {
+      shareBtn.style.display = navigator.share ? '' : 'none';
+      shareBtn.textContent = '📤 공유 다시 시도';
+    }
+    modal.classList.add('show');
+  }
+  function buildExcelBlobForShare(){
+    if (typeof people === 'undefined' || !people.length) {
+      toast('출력할 참가자가 없습니다');
+      return null;
+    }
+    if (!window.XLSX) {
+      toast('엑셀 모듈을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요');
+      return null;
+    }
+    exportName = '2026_하계수양회_' + settings.zone + '_사전접수.xlsx';
+    try {
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, buildRegistrationSheet(), '사전접수');
+      const buf = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+      exportBlob = new Blob([buf], { type: XLSX_MIME });
+      return exportBlob;
+    } catch(e) {
+      console.error(e);
+      toast('엑셀 생성 중 오류가 발생했습니다');
+      return null;
+    }
+  }
+  async function patchedExportExcel(){
+    const blob = buildExcelBlobForShare();
+    if (!blob) return;
+    const file = makeFile(blob, exportName);
+    const result = await nativeShareFile(file);
+    if (result.ok) {
+      toast('공유창을 열었습니다');
+      return;
+    }
+    if (result.aborted) return;
+    showExportFallback(isKakaoInApp() ? '카톡 인앱이 파일 공유를 막으면 다운로드 후 카톡에서 첨부하세요' : '');
+  }
+  async function patchedDoShare(){
+    if (!exportBlob && !buildExcelBlobForShare()) return;
+    const file = makeFile(exportBlob, exportName);
+    const result = await nativeShareFile(file);
+    if (result.ok) {
+      const modal = byId('exportModal');
+      if (modal) modal.classList.remove('show');
+      toast('공유창을 열었습니다');
+      return;
+    }
+    if (result.aborted) return;
+    showExportFallback('공유가 막혔습니다. 다운로드를 사용하세요');
+  }
+  function bindPatchedExcelButtons(){
+    const mainBtn = byId('exportExcelBtn');
+    const summaryBtn = byId('exportExcelBtn2');
+    const shareBtn = byId('exportShareBtn');
+    if (mainBtn) mainBtn.onclick = patchedExportExcel;
+    if (summaryBtn) summaryBtn.onclick = patchedExportExcel;
+    if (shareBtn) shareBtn.onclick = patchedDoShare;
+  }
+
+  window.kakaoExcelShareFix = {
+    exportExcel: patchedExportExcel,
+    doShare: patchedDoShare,
+    bind: bindPatchedExcelButtons
+  };
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', bindPatchedExcelButtons);
+  } else {
+    bindPatchedExcelButtons();
+  }
+})();
+</script>
 </body>
 </html>
